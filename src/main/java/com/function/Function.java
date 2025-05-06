@@ -1,95 +1,74 @@
 package com.function;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.microsoft.azure.functions.*;
-import com.microsoft.azure.functions.annotation.*;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.microsoft.azure.functions.ExecutionContext;
+import com.microsoft.azure.functions.annotation.EventGridTrigger;
+import com.microsoft.azure.functions.annotation.FunctionName;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
-import java.util.Optional;
 import java.util.Properties;
 
 public class Function {
 
-    @FunctionName("user_update")
-    public HttpResponseMessage run(
-        @HttpTrigger(
-            name = "req",
-            methods = {HttpMethod.POST, HttpMethod.PUT, HttpMethod.DELETE},
-            route = "usuarios",
-            authLevel = AuthorizationLevel.ANONYMOUS)
-        HttpRequestMessage<Optional<String>> request,
+     private static final Gson gson = new Gson();
+
+    @FunctionName("rolesEventHandler")
+    public void rolesEventHandler(
+        @EventGridTrigger(name = "event", dataType = "String")
+        String eventJson,
         final ExecutionContext context) {
 
-        context.getLogger().info("Java HTTP trigger ejecutado");
+        context.getLogger().info("Event Grid trigger ejecutado: " + eventJson);
 
         try {
-            ObjectMapper mapper = new ObjectMapper();
-            String json = request.getBody().orElse("{}");
-            User user = mapper.readValue(json, User.class);
-            HttpMethod method = request.getHttpMethod();
 
-            switch (method) {
-                case POST:
-                    crearUsuario(user, context);
-                    return request.createResponseBuilder(HttpStatus.CREATED)
-                            .body("Usuario creado correctamente.")
-                            .build();
+            JsonObject json = gson.fromJson(eventJson, JsonObject.class);
+            Rol rol = gson.fromJson(json.get("data").getAsString(), Rol.class);
+            String op = json.get("subject").getAsString();
 
-                case PUT:
-                    actualizarUsuario(user, context);
-                    return request.createResponseBuilder(HttpStatus.OK)
-                            .body("Usuario actualizado correctamente.")
-                            .build();
-
-                case DELETE:
-                    eliminarUsuario(user.id, context);
-                    return request.createResponseBuilder(HttpStatus.OK)
-                            .body("Usuario eliminado correctamente.")
-                            .build();
-
+            switch (op) {
+                case "create":
+                    crearRol(rol, context);
+                    break;
+                case "update":
+                    actualizarRol(rol, context);
+                    break;
+                case "delete":
+                    eliminarRol(rol.id, context);
+                    break;
                 default:
-                    return request.createResponseBuilder(HttpStatus.BAD_REQUEST)
-                            .body("Método no soportado.")
-                            .build();
+                    context.getLogger().warning("Operación desconocida: " + op);
             }
-
         } catch (Exception e) {
-            context.getLogger().severe("Error: " + e.getMessage());
-            return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Error en la operación: " + e.getMessage())
-                    .build();
+            context.getLogger().severe("Error procesando evento: " + e.getMessage());
         }
     }
 
-    private void crearUsuario(User user, ExecutionContext context) throws Exception {
+    private void crearRol(Rol rol, ExecutionContext context) throws Exception {
         Connection conn = conectarOracle(context);
         PreparedStatement stmt = conn.prepareStatement(
-                "INSERT INTO users (username, password, name, rol) VALUES (?, ?, ?, ?)");
-        stmt.setString(1, user.username);
-        stmt.setString(2, user.password);
-        stmt.setString(3, user.name);
-        stmt.setString(4, user.rol);
+            "INSERT INTO rols (id, name) VALUES (?, ?)");
+        stmt.setLong(1, rol.id);
+        stmt.setString(2, rol.name);
         stmt.executeUpdate();
     }
 
-    private void actualizarUsuario(User user, ExecutionContext context) throws Exception {
+    private void actualizarRol(Rol rol, ExecutionContext context) throws Exception {
         Connection conn = conectarOracle(context);
         PreparedStatement stmt = conn.prepareStatement(
-                "UPDATE users SET username = ?, password = ?, name = ?, rol = ? WHERE id = ?");
-        stmt.setString(1, user.username);
-        stmt.setString(2, user.password);
-        stmt.setString(3, user.name);
-        stmt.setString(4, user.rol);
-        stmt.setLong(5, user.id);
+            "UPDATE rols SET name = ? WHERE id = ?");
+        stmt.setString(1, rol.name);
+        stmt.setLong(2, rol.id);
         stmt.executeUpdate();
     }
 
-    private void eliminarUsuario(Long id, ExecutionContext context) throws Exception {
+    private void eliminarRol(Long id, ExecutionContext context) throws Exception {
         Connection conn = conectarOracle(context);
         PreparedStatement stmt = conn.prepareStatement(
-                "DELETE FROM users WHERE id = ?");
+            "DELETE FROM rols WHERE id = ?");
         stmt.setLong(1, id);
         stmt.executeUpdate();
     }
