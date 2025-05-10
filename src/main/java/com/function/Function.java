@@ -9,6 +9,7 @@ import com.microsoft.azure.functions.annotation.FunctionName;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.Properties;
 
 public class Function {
@@ -67,10 +68,21 @@ public class Function {
 
     private void eliminarRol(Long id, ExecutionContext context) throws Exception {
         Connection conn = conectarOracle(context);
-        PreparedStatement stmt = conn.prepareStatement(
-            "DELETE FROM rols WHERE id = ?");
+        PreparedStatement stmt = conn.prepareStatement("SELECT * FROM rols WHERE id = ?");
         stmt.setLong(1, id);
-        stmt.executeUpdate();
+        ResultSet rs = stmt.executeQuery();
+        if (rs.next()) {
+            stmt = conn.prepareStatement(
+                "DELETE FROM rols WHERE id = ?");
+            stmt.setLong(1, id);
+            stmt.executeUpdate();
+
+            stmt = conn.prepareStatement(
+                "UPDATE users SET rol = ? WHERE rol = ?");
+            stmt.setString(1, "GUEST");
+            stmt.setString(2, rs.getString("name"));
+            stmt.executeUpdate();
+        }
     }
 
     private Connection conectarOracle(ExecutionContext context) throws Exception {
